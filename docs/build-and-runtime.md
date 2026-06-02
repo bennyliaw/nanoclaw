@@ -67,6 +67,22 @@ Both paths end with Bun running the same source file from `/app/src/index.ts`.
 
 Any failure fails the PR.
 
+## Single-instance constraint
+
+Only one host process per install directory is supported. Two processes from the same directory share the same `nanoclaw-install` label, so whichever starts second will kill the first one's active containers via `cleanupOrphans()` — before it even reaches the port bind.
+
+A PID lock at `data/nanoclaw.pid` enforces this. On startup the host acquires the lock (exclusive create) before running orphan cleanup. If a live peer holds the lock, the newcomer sleeps 30 s then exits(0) without touching the circuit-breaker state — it's not a crash.
+
+**Common trigger:** launchd/systemd service installed (`KeepAlive=true`) while also running `pnpm start` in a terminal. Symptom: `EADDRINUSE` in the error log every ~15 minutes; messages dropped silently mid-turn.
+
+**Recovery if it happens:**
+1. `kill <pnpm-pid>` — releases port 3000
+2. `rm data/circuit-breaker.json` — resets backoff to immediate
+3. `launchctl kickstart -k gui/$(id -u)/com.nanoclaw-v2-<slug>` (macOS) or `systemctl --user restart nanoclaw` (Linux)
+4. Resend any messages that got no response — they were marked complete mid-turn and won't auto-retry.
+
+**If startup is blocked after a hard kill (SIGKILL):** `releasePidLock()` never ran. Delete `data/nanoclaw.pid` manually; the next start will proceed normally.
+
 ## Key invariants
 
 - **Session DBs must use `journal_mode=DELETE`.** WAL's `-shm` memory-map doesn't cross VirtioFS between host and guest. See the doc comment at the top of `container/agent-runner/src/db/connection.ts` and `src/session-manager.ts`.

@@ -9,6 +9,7 @@ import path from 'path';
 import { backfillContainerConfigs } from './backfill-container-configs.js';
 import { DATA_DIR } from './config.js';
 import { enforceStartupBackoff, resetCircuitBreaker } from './circuit-breaker.js';
+import { acquirePidLock, releasePidLock } from './pid-lock.js';
 import { migrateGroupsToClaudeLocal } from './claude-md-compose.js';
 import { initDb } from './db/connection.js';
 import { runMigrations } from './db/migrations/index.js';
@@ -66,7 +67,16 @@ import { initChannelAdapters, teardownChannelAdapters, getChannelAdapter } from 
 async function main(): Promise<void> {
   log.info('NanoClaw starting');
 
-  // 0. Circuit breaker — backoff on rapid restarts
+  // 0a. Single-instance guard — must run before cleanupOrphans() to prevent a
+  // second process from the same install killing active containers.
+  // Exit(0) without touching circuit-breaker state — this is not a crash.
+  // Sleep 30s first so launchd's KeepAlive doesn't spin at its 10s floor.
+  if (!acquirePidLock()) {
+    await new Promise((resolve) => setTimeout(resolve, 30_000));
+    process.exit(0);
+  }
+
+  // 0b. Circuit breaker — backoff on rapid restarts
   await enforceStartupBackoff();
 
   // 1. Init central DB
@@ -199,6 +209,7 @@ async function shutdown(signal: string): Promise<void> {
     // Always reset on graceful shutdown — even if teardown threw, we got here
     // via SIGTERM/SIGINT, not a crash, so the next start shouldn't be counted
     // as one.
+    releasePidLock();
     resetCircuitBreaker();
     process.exit(0);
   }

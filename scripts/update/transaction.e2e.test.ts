@@ -194,6 +194,9 @@ function fakeRuntime(
     drainContainers: async () => {
       events.push('containers drained');
     },
+    restartGateways: () => {
+      events.push('gateways restarted');
+    },
     startService: () => {
       events.push('service start');
       if (options.migrateOnStart && fs.readFileSync(path.join(install, 'src/value.ts'), 'utf8').includes('new')) {
@@ -282,8 +285,13 @@ describe('update-nanoclaw transaction end to end', () => {
     fs.writeFileSync(path.join(fixture.install, 'start-nanoclaw.sh'), '#!/bin/bash\nexit 1\n');
     fs.writeFileSync(path.join(fixture.install, 'nanoclaw.pid'), '9999\n');
     runtime.detectService = () => ({ mode: 'unmanaged', active: true });
+    const beforeRollback = events.length;
     state = await rollbackUpdate(fixture.install, state.id, runtime);
     expect(state.phase).toBe('rolled-back');
+    // Gateways kept through cutover must be remounted onto the restored data/.
+    const rollbackEvents = events.slice(beforeRollback);
+    expect(rollbackEvents).toContain('gateways restarted');
+    expect(rollbackEvents.indexOf('gateways restarted')).toBeLessThan(rollbackEvents.indexOf('service start'));
     expect(exec(fixture.install, 'git', ['rev-parse', 'HEAD'])).toBe(fixture.originalHead);
     expect(fs.readFileSync(path.join(fixture.install, 'data/v2.db'), 'utf8')).toBe('old-schema');
     expect(fs.readFileSync(path.join(fixture.install, '.env'), 'utf8')).toBe('EXAMPLE=old\n');

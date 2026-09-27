@@ -155,6 +155,10 @@ export interface RoutingContext {
    *  delivers from a task session; final-text `<message to>` blocks are inert
    *  and the final text auto-appends to the series run log. */
   taskRun: boolean;
+  /** Every non-echo row came from another agent. Only then does an a2a send
+   *  answer the batch; with a user row mixed in, the user's answer is still
+   *  owed. Absent means false (fail toward a nudge, never a swallowed turn). */
+  agentOnly?: boolean;
 }
 
 /**
@@ -167,6 +171,7 @@ export interface RoutingContext {
  */
 export function extractRouting(messages: MessageInRow[]): RoutingContext {
   const first = messages.find((m) => !isSessionEcho(m)) ?? messages[0];
+  const live = messages.filter((m) => !isSessionEcho(m));
   return {
     platformId: first?.platform_id ?? null,
     channelType: first?.channel_type ?? null,
@@ -175,6 +180,7 @@ export function extractRouting(messages: MessageInRow[]): RoutingContext {
     // Echo rows riding along with a task must not disable one-door delivery:
     // taskRun as long as at least one task row and no non-task/non-echo row.
     taskRun: messages.some((m) => m.kind === 'task') && messages.every((m) => m.kind === 'task' || isSessionEcho(m)),
+    agentOnly: live.length > 0 && live.every((m) => m.channel_type === 'agent'),
   };
 }
 

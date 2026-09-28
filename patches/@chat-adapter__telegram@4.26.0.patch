@@ -1,0 +1,51 @@
+diff --git a/dist/index.js b/dist/index.js
+index 98101e0668edfa6f5e57f934e4dd366338e4d272..7e2841e4ceb53b4c0dc7d8923bccfdab23927694 100644
+--- a/dist/index.js
++++ b/dist/index.js
+@@ -617,13 +617,10 @@ var TelegramAdapter = class {
+       if (!file) {
+         throw new ValidationError2("telegram", "File upload payload is empty");
+       }
+-      rawMessage = await this.sendDocument(
+-        parsedThread,
+-        file,
+-        text,
+-        replyMarkup,
+-        parseMode
+-      );
++      const isImage = /\.(png|jpg|jpeg|gif|webp)$/i.test(file.filename ?? "");
++      rawMessage = isImage
++        ? await this.sendPhoto(parsedThread, file, text, replyMarkup, parseMode)
++        : await this.sendDocument(parsedThread, file, text, replyMarkup, parseMode);
+     } else {
+       if (!text.trim()) {
+         throw new ValidationError2("telegram", "Message text cannot be empty");
+@@ -1033,6 +1030,28 @@ var TelegramAdapter = class {
+     }
+     return this.telegramFetch("sendDocument", formData);
+   }
++  async sendPhoto(thread, file, text, replyMarkup, parseMode) {
++    const buffer = await this.toTelegramBuffer(file.data);
++    const formData = new FormData();
++    formData.append("chat_id", thread.chatId);
++    if (typeof thread.messageThreadId === "number") {
++      formData.append("message_thread_id", String(thread.messageThreadId));
++    }
++    if (text.trim()) {
++      formData.append("caption", this.truncateCaption(text));
++      if (parseMode) {
++        formData.append("parse_mode", parseMode);
++      }
++    }
++    const blob = new Blob([new Uint8Array(buffer)], {
++      type: file.mimeType ?? "image/png"
++    });
++    formData.append("photo", blob, file.filename);
++    if (replyMarkup) {
++      formData.append("reply_markup", JSON.stringify(replyMarkup));
++    }
++    return this.telegramFetch("sendPhoto", formData);
++  }
+   async toTelegramBuffer(data) {
+     if (Buffer.isBuffer(data)) {
+       return data;

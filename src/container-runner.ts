@@ -5,6 +5,7 @@
  */
 import { ChildProcess, execSync, spawn } from 'child_process';
 import fs from 'fs';
+import os from 'os';
 import path from 'path';
 
 import { OneCLI } from '@onecli-sh/sdk';
@@ -318,6 +319,14 @@ function buildMounts(
   const skillsSrc = path.join(projectRoot, 'container', 'skills');
   if (fs.existsSync(skillsSrc)) {
     mounts.push({ hostPath: skillsSrc, containerPath: '/app/skills', readonly: true });
+  }
+
+  // Host Claude Code usage data — written by the host's statusLine hook every ~30s.
+  // Mounted read-only so agents can check the user's personal Pro subscription usage
+  // via /claude-usage without any container-side auth dependency.
+  const claudeUsagePath = path.join(os.homedir(), '.claude', 'claude-usage.json');
+  if (fs.existsSync(claudeUsagePath)) {
+    mounts.push({ hostPath: claudeUsagePath, containerPath: '/workspace/agent/.claude-usage.json', readonly: true });
   }
 
   // Additional mounts from container config
